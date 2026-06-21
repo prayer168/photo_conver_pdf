@@ -106,20 +106,28 @@
 <body>
 <div class="wrap">
   <h1>圖片批次轉 PDF</h1>
-  <div class="sub">A2 直式（420×594mm）· <b>無損嵌入原圖</b>，畫質與原檔 100% 相同 · 全程在瀏覽器本機處理，圖片不上傳</div>
+  <div class="sub">可選 A1 / A2 / A3，直式或橫式 · JPG/PNG <b>無損嵌入原圖</b>（HEIC 轉高品質 JPEG）· 全程在瀏覽器本機處理，圖片不上傳</div>
 
   <div class="drop" id="drop">
     <div class="big">點此選擇圖片，或把圖片拖進來</div>
-    <div class="small">支援 JPG / JPEG / PNG，可一次選多張</div>
+    <div class="small">支援 JPG / JPEG / PNG / HEIC，可一次選多張</div>
   </div>
-  <input type="file" id="file" accept="image/jpeg,image/png" multiple>
+  <input type="file" id="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple>
 
   <div class="opts">
     <span>
+      <label>紙張大小：</label>
+      <select id="paper">
+        <option value="A1">A1（594×841mm）</option>
+        <option value="A2" selected>A2（420×594mm）</option>
+        <option value="A3">A3（297×420mm）</option>
+      </select>
+    </span>
+    <span>
       <label>頁面方向：</label>
       <select id="orient">
-        <option value="portrait" selected>A2 直式（420×594mm）</option>
-        <option value="landscape">A2 橫式（594×420mm）</option>
+        <option value="portrait" selected>直式</option>
+        <option value="landscape">橫式</option>
       </select>
     </span>
     <span>
@@ -149,19 +157,20 @@
 
 <script src="lib/pdf-lib.min.js"></script>
 <script src="lib/jszip.min.js"></script>
+<script src="lib/heic2any.min.js"></script>
 <script>
 (function () {
   "use strict";
   const { PDFDocument } = PDFLib;
 
-  // A2 (pt, 72dpi)：420mm=1190.55pt, 594mm=1683.78pt
-  const A2_SHORT = 420 / 25.4 * 72; // 1190.55
-  const A2_LONG  = 594 / 25.4 * 72; // 1683.78
+  // 紙張尺寸 (mm)：[短邊, 長邊]
+  const PAPERS = { A1: [594, 841], A2: [420, 594], A3: [297, 420] };
+  const mm2pt = (v) => v / 25.4 * 72;
 
   const $ = (id) => document.getElementById(id);
   const drop = $("drop"), fileInput = $("file"), listEl = $("list"), statEl = $("stat");
   const btnConvert = $("convert"), btnZip = $("zip"), btnClear = $("clear");
-  const selOrient = $("orient"), selMargin = $("margin");
+  const selPaper = $("paper"), selOrient = $("orient"), selMargin = $("margin");
 
   /** items: { id, file, name, base, type, bytes, thumbUrl, status, pdfBytes, pdfName } */
   let items = [];
@@ -180,26 +189,43 @@
     if (files && files.length) addFiles(files);
   });
 
+  // 判斷檔案類型：'png' | 'jpg' | 'heic'，不支援回傳 null
+  function kindOf(f) {
+    const t = (f.type || "").toLowerCase();
+    const n = f.name.toLowerCase();
+    if (t === "image/png") return "png";
+    if (t === "image/jpeg") return "jpg";
+    if (t === "image/heic" || t === "image/heif" || /\.(heic|heif)$/.test(n)) return "heic";
+    if (/\.png$/.test(n)) return "png";
+    if (/\.jpe?g$/.test(n)) return "jpg";
+    return null;
+  }
+
   function addFiles(fileList) {
-    const arr = Array.from(fileList).filter(f =>
-      f.type === "image/jpeg" || f.type === "image/png");
-    if (!arr.length) { setStat("沒有可用的 JPG / PNG 圖片", "warn"); return; }
-    arr.forEach(f => {
+    let added = 0;
+    Array.from(fileList).forEach(f => {
+      const kind = kindOf(f);
+      if (!kind) return;
+      const heic = kind === "heic";
       items.push({
         id: ++seq,
         file: f,
         name: f.name,
         base: f.name.replace(/\.[^.]+$/, ""),
-        type: f.type,
+        kind: kind,                       // 原始類型
+        embedType: heic ? "jpg" : kind,   // 嵌入 PDF 時的格式（HEIC 轉 jpg）
+        isHeic: heic,
         bytes: null,
-        thumbUrl: URL.createObjectURL(f),
+        thumbUrl: heic ? null : URL.createObjectURL(f), // HEIC 無法直接預覽，轉換後再補
         status: "wait",
         pdfBytes: null,
         pdfName: f.name.replace(/\.[^.]+$/, "") + ".pdf",
       });
+      added++;
     });
+    if (!added) { setStat("沒有可用的 JPG / PNG / HEIC 圖片", "warn"); return; }
     render();
-    setStat(`已加入 ${arr.length} 張，目前清單共 ${items.length} 張`);
+    setStat(`已加入 ${added} 張，目前清單共 ${items.length} 張`);
   }
 
   // ---------- 畫面 ----------
@@ -208,8 +234,16 @@
     items.forEach(it => {
       const li = document.createElement("li");
 
-      const img = document.createElement("img");
-      img.className = "thumb"; img.src = it.thumbUrl; img.alt = "";
+      let img;
+      if (it.thumbUrl) {
+        img = document.createElement("img");
+        img.className = "thumb"; img.src = it.thumbUrl; img.alt = "";
+      } else {
+        img = document.createElement("div");
+        img.className = "thumb";
+        img.style.cssText += "display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);";
+        img.textContent = "HEIC";
+      }
 
       const meta = document.createElement("div");
       meta.className = "meta";
@@ -217,7 +251,7 @@
       nm.className = "nm"; nm.textContent = it.name;
       const dt = document.createElement("div");
       dt.className = "dt";
-      dt.textContent = `${(it.file.size / 1024).toFixed(0)} KB · ${it.type.replace("image/", "").toUpperCase()}`;
+      dt.textContent = `${(it.file.size / 1024).toFixed(0)} KB · ${it.kind.toUpperCase()}`;
       meta.appendChild(nm); meta.appendChild(dt);
 
       const badge = document.createElement("span");
@@ -273,9 +307,10 @@
   // ---------- 轉換 ----------
   btnConvert.onclick = async () => {
     btnConvert.disabled = true;
+    const [shortMM, longMM] = PAPERS[selPaper.value] || PAPERS.A2;
     const portrait = selOrient.value === "portrait";
-    const pageW = portrait ? A2_SHORT : A2_LONG;
-    const pageH = portrait ? A2_LONG : A2_SHORT;
+    const pageW = mm2pt(portrait ? shortMM : longMM);
+    const pageH = mm2pt(portrait ? longMM : shortMM);
     const margin = parseFloat(selMargin.value) || 0;
 
     let done = 0, fail = 0;
@@ -284,7 +319,17 @@
       if (it.status === "done") { done++; continue; }
       setStat(`轉換中… (${i + 1}/${items.length}) ${it.name}`);
       try {
-        if (!it.bytes) it.bytes = new Uint8Array(await it.file.arrayBuffer());
+        if (!it.bytes) {
+          if (it.isHeic) {
+            // PDF 不支援 HEIC：解碼後轉高品質 JPEG 再嵌入
+            const out = await heic2any({ blob: it.file, toType: "image/jpeg", quality: 0.95 });
+            const blob = Array.isArray(out) ? out[0] : out;
+            it.bytes = new Uint8Array(await blob.arrayBuffer());
+            it.thumbUrl = URL.createObjectURL(blob); // 補上可預覽縮圖
+          } else {
+            it.bytes = new Uint8Array(await it.file.arrayBuffer());
+          }
+        }
         const pdfBytes = await buildPdf(it, pageW, pageH, margin);
         it.pdfBytes = pdfBytes;
         it.status = "done";
@@ -303,8 +348,8 @@
 
   async function buildPdf(it, pageW, pageH, margin) {
     const pdf = await PDFDocument.create();
-    // 無損嵌入：直接用原始檔案 bytes，不重新編碼
-    const img = it.type === "image/png"
+    // JPG/PNG 無損嵌入原始 bytes；HEIC 已轉成高品質 JPEG bytes
+    const img = it.embedType === "png"
       ? await pdf.embedPng(it.bytes)
       : await pdf.embedJpg(it.bytes);
 
