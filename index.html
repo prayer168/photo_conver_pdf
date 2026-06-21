@@ -98,8 +98,16 @@
   .meta .dt { font-size: 12px; color: var(--muted); }
   .badge { font-size: 12px; padding: 3px 9px; border-radius: 999px; flex: 0 0 auto; }
   .badge.wait { background: #334155; color: var(--muted); }
+  .badge.proc { background: rgba(56,189,248,.18); color: var(--accent); }
   .badge.done { background: rgba(34,197,94,.15); color: var(--ok); }
   .badge.err  { background: rgba(239,68,68,.15); color: var(--err); }
+  .badge.proc::before {
+    content: ""; display: inline-block; width: 9px; height: 9px;
+    margin-right: 5px; vertical-align: -1px;
+    border: 2px solid var(--accent); border-top-color: transparent;
+    border-radius: 50%; animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .dl {
     font-size: 13px; padding: 6px 12px; border-radius: 8px; flex: 0 0 auto;
     background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
@@ -284,8 +292,10 @@
       meta.appendChild(nm); meta.appendChild(dt);
 
       const badge = document.createElement("span");
-      badge.className = "badge " + (it.status === "done" ? "done" : it.status === "err" ? "err" : "wait");
-      badge.textContent = it.status === "done" ? "已完成" : it.status === "err" ? "失敗" : "待轉換";
+      const cls = { done: "done", err: "err", proc: "proc" }[it.status] || "wait";
+      const txt = { done: "已完成", err: "失敗", proc: "轉換中…" }[it.status] || "待轉換";
+      badge.className = "badge " + cls;
+      badge.textContent = txt;
 
       const dl = document.createElement("button");
       dl.className = "dl"; dl.textContent = "下載 PDF";
@@ -347,6 +357,9 @@
       const it = items[i];
       if (it.status === "done") { done++; continue; }
       setStat(`轉換中… (${i + 1}/${items.length}) ${it.name}`);
+      it.status = "proc";
+      render();
+      await new Promise(r => setTimeout(r)); // 讓「轉換中」狀態先畫出來再開始解碼
       try {
         if (!it.bytes) {
           if (it.pipe === "heic") {
