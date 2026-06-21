@@ -73,6 +73,16 @@
 
   .stat { font-size: 13px; color: var(--muted); margin: 4px 2px 12px; min-height: 18px; }
 
+  .info {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent); border-radius: 10px;
+    padding: 12px 16px; margin: 16px 0; font-size: 13px; color: var(--muted);
+  }
+  .info-title { color: var(--text); font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+  .info ul { margin: 0; padding-left: 18px; }
+  .info li { margin: 4px 0; }
+  .info b { color: var(--text); }
+
   ul.list { list-style: none; padding: 0; margin: 0; }
   ul.list li {
     display: flex; align-items: center; gap: 12px;
@@ -110,9 +120,9 @@
 
   <div class="drop" id="drop">
     <div class="big">點此選擇圖片，或把圖片拖進來</div>
-    <div class="small">支援 JPG / JPEG / PNG / HEIC，可一次選多張</div>
+    <div class="small">支援 JPG / PNG / HEIC / WebP / AVIF / GIF / BMP，可一次選多張</div>
   </div>
-  <input type="file" id="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple>
+  <input type="file" id="file" accept="image/jpeg,image/png,image/heic,image/heif,image/webp,image/avif,image/gif,image/bmp,.heic,.heif,.webp,.avif,.gif,.bmp,.jfif" multiple>
 
   <div class="opts">
     <span>
@@ -138,6 +148,15 @@
         <option value="40">中（40pt）</option>
       </select>
     </span>
+  </div>
+
+  <div class="info">
+    <div class="info-title">關於畫質與格式</div>
+    <ul>
+      <li><b>JPG / PNG</b>：直接把原始檔案位元組嵌入 PDF，<b>完全無損</b>，與原檔 100% 相同。</li>
+      <li><b>WebP / AVIF / GIF / BMP</b>：由瀏覽器解碼後以 PNG 無損重新封裝再嵌入，像素資料不變。</li>
+      <li><b>HEIC</b>：PDF 容器本身不支援 HEIC、瀏覽器也無法直接保留它，所以 HEIC 必須先解碼再轉成高品質 JPEG（用最高品質 0.95，視覺上近乎無損）才能嵌入。</li>
+    </ul>
   </div>
 
   <div class="bar">
@@ -189,41 +208,51 @@
     if (files && files.length) addFiles(files);
   });
 
-  // 判斷檔案類型：'png' | 'jpg' | 'heic'，不支援回傳 null
-  function kindOf(f) {
+  // 判斷檔案格式。回傳 { label, pipe } 或 null（不支援）
+  //   pipe: 'jpg'（直接無損嵌入）| 'png'（直接無損嵌入）
+  //        | 'heic'（解碼轉 JPEG）| 'canvas'（瀏覽器解碼轉 PNG）
+  function detect(f) {
     const t = (f.type || "").toLowerCase();
     const n = f.name.toLowerCase();
-    if (t === "image/png") return "png";
-    if (t === "image/jpeg") return "jpg";
-    if (t === "image/heic" || t === "image/heif" || /\.(heic|heif)$/.test(n)) return "heic";
-    if (/\.png$/.test(n)) return "png";
-    if (/\.jpe?g$/.test(n)) return "jpg";
+    const ext = (n.match(/\.([a-z0-9]+)$/) || [])[1] || "";
+    if (t === "image/png" || ext === "png") return { label: "PNG", pipe: "png" };
+    if (t === "image/jpeg" || ext === "jpg" || ext === "jpeg" || ext === "jfif")
+      return { label: "JPG", pipe: "jpg" };
+    if (t === "image/heic" || t === "image/heif" || ext === "heic" || ext === "heif")
+      return { label: "HEIC", pipe: "heic" };
+    if (t === "image/webp" || ext === "webp") return { label: "WEBP", pipe: "canvas" };
+    if (t === "image/avif" || ext === "avif") return { label: "AVIF", pipe: "canvas" };
+    if (t === "image/gif" || ext === "gif") return { label: "GIF", pipe: "canvas" };
+    if (t === "image/bmp" || t === "image/x-ms-bmp" || ext === "bmp")
+      return { label: "BMP", pipe: "canvas" };
     return null;
   }
 
   function addFiles(fileList) {
     let added = 0;
     Array.from(fileList).forEach(f => {
-      const kind = kindOf(f);
-      if (!kind) return;
-      const heic = kind === "heic";
+      const d = detect(f);
+      if (!d) return;
+      const heic = d.pipe === "heic";
       items.push({
         id: ++seq,
         file: f,
         name: f.name,
         base: f.name.replace(/\.[^.]+$/, ""),
-        kind: kind,                       // 原始類型
-        embedType: heic ? "jpg" : kind,   // 嵌入 PDF 時的格式（HEIC 轉 jpg）
+        kindLabel: d.label,
+        pipe: d.pipe,
+        embedType: (d.pipe === "png" || d.pipe === "canvas") ? "png" : "jpg",
         isHeic: heic,
         bytes: null,
-        thumbUrl: heic ? null : URL.createObjectURL(f), // HEIC 無法直接預覽，轉換後再補
+        // HEIC 無法用 <img> 直接預覽，轉換後再補；其餘格式瀏覽器可預覽
+        thumbUrl: heic ? null : URL.createObjectURL(f),
         status: "wait",
         pdfBytes: null,
         pdfName: f.name.replace(/\.[^.]+$/, "") + ".pdf",
       });
       added++;
     });
-    if (!added) { setStat("沒有可用的 JPG / PNG / HEIC 圖片", "warn"); return; }
+    if (!added) { setStat("沒有可用的圖片（支援 JPG/PNG/HEIC/WebP/AVIF/GIF/BMP）", "warn"); return; }
     render();
     setStat(`已加入 ${added} 張，目前清單共 ${items.length} 張`);
   }
@@ -251,7 +280,7 @@
       nm.className = "nm"; nm.textContent = it.name;
       const dt = document.createElement("div");
       dt.className = "dt";
-      dt.textContent = `${(it.file.size / 1024).toFixed(0)} KB · ${it.kind.toUpperCase()}`;
+      dt.textContent = `${(it.file.size / 1024).toFixed(0)} KB · ${it.kindLabel}`;
       meta.appendChild(nm); meta.appendChild(dt);
 
       const badge = document.createElement("span");
@@ -320,13 +349,17 @@
       setStat(`轉換中… (${i + 1}/${items.length}) ${it.name}`);
       try {
         if (!it.bytes) {
-          if (it.isHeic) {
+          if (it.pipe === "heic") {
             // PDF 不支援 HEIC：解碼後轉高品質 JPEG 再嵌入
             const out = await heic2any({ blob: it.file, toType: "image/jpeg", quality: 0.95 });
             const blob = Array.isArray(out) ? out[0] : out;
             it.bytes = new Uint8Array(await blob.arrayBuffer());
             it.thumbUrl = URL.createObjectURL(blob); // 補上可預覽縮圖
+          } else if (it.pipe === "canvas") {
+            // WebP/AVIF/GIF/BMP：瀏覽器解碼後以 PNG 無損重新封裝（像素不變）
+            it.bytes = await toPngBytes(it.file);
           } else {
+            // JPG / PNG：原始位元組直接嵌入，完全無損
             it.bytes = new Uint8Array(await it.file.arrayBuffer());
           }
         }
@@ -345,6 +378,18 @@
     setStat(`完成：${done} 成功${fail ? `，${fail} 失敗` : ""}`, fail ? "warn" : "ok");
     refreshButtons();
   };
+
+  // 用瀏覽器解碼任意可顯示格式，輸出 PNG bytes（像素無損）
+  async function toPngBytes(file) {
+    const bmp = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    canvas.getContext("2d").drawImage(bmp, 0, 0);
+    bmp.close && bmp.close();
+    const blob = await new Promise(r => canvas.toBlob(r, "image/png"));
+    return new Uint8Array(await blob.arrayBuffer());
+  }
 
   async function buildPdf(it, pageW, pageH, margin) {
     const pdf = await PDFDocument.create();
