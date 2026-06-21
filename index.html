@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>圖片批次轉 PDF（A2 直式・無損畫質）</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #283548;
+    --line: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-d: #0ea5e9;
+    --ok: #22c55e;
+    --err: #ef4444;
+    --warn: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 24px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .sub b { color: var(--accent); }
+
+  .drop {
+    border: 2px dashed var(--line);
+    border-radius: 14px;
+    padding: 40px 20px;
+    text-align: center;
+    background: var(--panel);
+    cursor: pointer;
+    transition: .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--panel-2); }
+  .drop .big { font-size: 17px; font-weight: 600; }
+  .drop .small { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  #file { display: none; }
+
+  .opts {
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    margin: 16px 0; padding: 14px 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    font-size: 14px;
+  }
+  .opts label { color: var(--muted); }
+  select, input[type=text] {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px; font-size: 14px;
+  }
+  input[type=text] { width: 140px; }
+
+  .bar { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+  button {
+    border: none; border-radius: 10px; padding: 10px 18px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #04293b; transition: .15s;
+  }
+  button:hover { background: var(--accent-d); }
+  button.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+  button.ghost:hover { background: var(--line); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  .stat { font-size: 13px; color: var(--muted); margin: 4px 2px 12px; min-height: 18px; }
+
+  ul.list { list-style: none; padding: 0; margin: 0; }
+  ul.list li {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 8px;
+  }
+  .thumb {
+    width: 54px; height: 54px; border-radius: 6px; object-fit: cover;
+    background: var(--panel-2); flex: 0 0 auto;
+  }
+  .meta { flex: 1 1 auto; min-width: 0; }
+  .meta .nm { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta .dt { font-size: 12px; color: var(--muted); }
+  .badge { font-size: 12px; padding: 3px 9px; border-radius: 999px; flex: 0 0 auto; }
+  .badge.wait { background: #334155; color: var(--muted); }
+  .badge.done { background: rgba(34,197,94,.15); color: var(--ok); }
+  .badge.err  { background: rgba(239,68,68,.15); color: var(--err); }
+  .dl {
+    font-size: 13px; padding: 6px 12px; border-radius: 8px; flex: 0 0 auto;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  }
+  .dl:hover { background: var(--line); }
+  .dl:disabled { opacity: .4; }
+  .rm { background: transparent; color: var(--muted); padding: 4px 8px; font-size: 18px; }
+  .rm:hover { background: transparent; color: var(--err); }
+
+  footer { color: var(--muted); font-size: 12px; margin-top: 24px; text-align: center; }
+  .note { font-size: 12px; color: var(--warn); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>圖片批次轉 PDF</h1>
+  <div class="sub">A2 直式（420×594mm）· <b>無損嵌入原圖</b>，畫質與原檔 100% 相同 · 全程在瀏覽器本機處理，圖片不上傳</div>
+
+  <div class="drop" id="drop">
+    <div class="big">點此選擇圖片，或把圖片拖進來</div>
+    <div class="small">支援 JPG / JPEG / PNG，可一次選多張</div>
+  </div>
+  <input type="file" id="file" accept="image/jpeg,image/png" multiple>
+
+  <div class="opts">
+    <span>
+      <label>頁面方向：</label>
+      <select id="orient">
+        <option value="portrait" selected>A2 直式（420×594mm）</option>
+        <option value="landscape">A2 橫式（594×420mm）</option>
+      </select>
+    </span>
+    <span>
+      <label>圖片邊距：</label>
+      <select id="margin">
+        <option value="0" selected>無邊距（滿版）</option>
+        <option value="20">小（20pt）</option>
+        <option value="40">中（40pt）</option>
+      </select>
+    </span>
+  </div>
+
+  <div class="bar">
+    <button id="convert" disabled>開始轉換</button>
+    <button id="zip" class="ghost" disabled>全部打包 ZIP 下載</button>
+    <button id="clear" class="ghost" disabled>清空清單</button>
+  </div>
+  <div class="stat" id="stat"></div>
+
+  <ul class="list" id="list"></ul>
+
+  <footer>純前端離線工具 · pdf-lib + JSZip · 無損 PDF 容器封裝</footer>
+</div>
+
+<script src="lib/pdf-lib.min.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const { PDFDocument } = PDFLib;
+
+  // A2 (pt, 72dpi)：420mm=1190.55pt, 594mm=1683.78pt
+  const A2_SHORT = 420 / 25.4 * 72; // 1190.55
+  const A2_LONG  = 594 / 25.4 * 72; // 1683.78
+
+  const $ = (id) => document.getElementById(id);
+  const drop = $("drop"), fileInput = $("file"), listEl = $("list"), statEl = $("stat");
+  const btnConvert = $("convert"), btnZip = $("zip"), btnClear = $("clear");
+  const selOrient = $("orient"), selMargin = $("margin");
+
+  /** items: { id, file, name, base, type, bytes, thumbUrl, status, pdfBytes, pdfName } */
+  let items = [];
+  let seq = 0;
+
+  // ---------- 選檔 / 拖放 ----------
+  drop.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => { addFiles(e.target.files); fileInput.value = ""; });
+
+  ["dragenter", "dragover"].forEach(ev =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => {
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files.length) addFiles(files);
+  });
+
+  function addFiles(fileList) {
+    const arr = Array.from(fileList).filter(f =>
+      f.type === "image/jpeg" || f.type === "image/png");
+    if (!arr.length) { setStat("沒有可用的 JPG / PNG 圖片", "warn"); return; }
+    arr.forEach(f => {
+      items.push({
+        id: ++seq,
+        file: f,
+        name: f.name,
+        base: f.name.replace(/\.[^.]+$/, ""),
+        type: f.type,
+        bytes: null,
+        thumbUrl: URL.createObjectURL(f),
+        status: "wait",
+        pdfBytes: null,
+        pdfName: f.name.replace(/\.[^.]+$/, "") + ".pdf",
+      });
+    });
+    render();
+    setStat(`已加入 ${arr.length} 張，目前清單共 ${items.length} 張`);
+  }
+
+  // ---------- 畫面 ----------
+  function render() {
+    listEl.innerHTML = "";
+    items.forEach(it => {
+      const li = document.createElement("li");
+
+      const img = document.createElement("img");
+      img.className = "thumb"; img.src = it.thumbUrl; img.alt = "";
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const nm = document.createElement("div");
+      nm.className = "nm"; nm.textContent = it.name;
+      const dt = document.createElement("div");
+      dt.className = "dt";
+      dt.textContent = `${(it.file.size / 1024).toFixed(0)} KB · ${it.type.replace("image/", "").toUpperCase()}`;
+      meta.appendChild(nm); meta.appendChild(dt);
+
+      const badge = document.createElement("span");
+      badge.className = "badge " + (it.status === "done" ? "done" : it.status === "err" ? "err" : "wait");
+      badge.textContent = it.status === "done" ? "已完成" : it.status === "err" ? "失敗" : "待轉換";
+
+      const dl = document.createElement("button");
+      dl.className = "dl"; dl.textContent = "下載 PDF";
+      dl.disabled = it.status !== "done";
+      dl.onclick = () => downloadOne(it);
+
+      const rm = document.createElement("button");
+      rm.className = "rm"; rm.textContent = "×"; rm.title = "移除";
+      rm.onclick = () => { removeItem(it.id); };
+
+      li.appendChild(img); li.appendChild(meta);
+      li.appendChild(badge); li.appendChild(dl); li.appendChild(rm);
+      listEl.appendChild(li);
+    });
+    refreshButtons();
+  }
+
+  function refreshButtons() {
+    const has = items.length > 0;
+    const anyDone = items.some(it => it.status === "done");
+    btnConvert.disabled = !has;
+    btnClear.disabled = !has;
+    btnZip.disabled = !anyDone;
+  }
+
+  function setStat(msg, kind) {
+    statEl.textContent = msg;
+    statEl.style.color = kind === "warn" ? "var(--warn)"
+      : kind === "err" ? "var(--err)"
+      : kind === "ok" ? "var(--ok)" : "var(--muted)";
+  }
+
+  function removeItem(id) {
+    const it = items.find(x => x.id === id);
+    if (it && it.thumbUrl) URL.revokeObjectURL(it.thumbUrl);
+    items = items.filter(x => x.id !== id);
+    render();
+    setStat(`目前清單共 ${items.length} 張`);
+  }
+
+  btnClear.onclick = () => {
+    items.forEach(it => it.thumbUrl && URL.revokeObjectURL(it.thumbUrl));
+    items = [];
+    render();
+    setStat("已清空");
+  };
+
+  // ---------- 轉換 ----------
+  btnConvert.onclick = async () => {
+    btnConvert.disabled = true;
+    const portrait = selOrient.value === "portrait";
+    const pageW = portrait ? A2_SHORT : A2_LONG;
+    const pageH = portrait ? A2_LONG : A2_SHORT;
+    const margin = parseFloat(selMargin.value) || 0;
+
+    let done = 0, fail = 0;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.status === "done") { done++; continue; }
+      setStat(`轉換中… (${i + 1}/${items.length}) ${it.name}`);
+      try {
+        if (!it.bytes) it.bytes = new Uint8Array(await it.file.arrayBuffer());
+        const pdfBytes = await buildPdf(it, pageW, pageH, margin);
+        it.pdfBytes = pdfBytes;
+        it.status = "done";
+        done++;
+      } catch (err) {
+        console.error(err);
+        it.status = "err";
+        fail++;
+      }
+      render();
+      await new Promise(r => setTimeout(r)); // 讓畫面更新
+    }
+    setStat(`完成：${done} 成功${fail ? `，${fail} 失敗` : ""}`, fail ? "warn" : "ok");
+    refreshButtons();
+  };
+
+  async function buildPdf(it, pageW, pageH, margin) {
+    const pdf = await PDFDocument.create();
+    // 無損嵌入：直接用原始檔案 bytes，不重新編碼
+    const img = it.type === "image/png"
+      ? await pdf.embedPng(it.bytes)
+      : await pdf.embedJpg(it.bytes);
+
+    const page = pdf.addPage([pageW, pageH]);
+    const availW = pageW - margin * 2;
+    const availH = pageH - margin * 2;
+    // 等比例縮放置中（contain）：保留全部像素，僅設定顯示尺寸
+    const scale = Math.min(availW / img.width, availH / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    page.drawImage(img, {
+      x: (pageW - w) / 2,
+      y: (pageH - h) / 2,
+      width: w,
+      height: h,
+    });
+    return await pdf.save();
+  }
+
+  // ---------- 下載 ----------
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function downloadOne(it) {
+    if (!it.pdfBytes) return;
+    downloadBlob(new Blob([it.pdfBytes], { type: "application/pdf" }), it.pdfName);
+  }
+
+  btnZip.onclick = async () => {
+    const ready = items.filter(it => it.status === "done" && it.pdfBytes);
+    if (!ready.length) return;
+    btnZip.disabled = true;
+    setStat("打包 ZIP 中…");
+    const zip = new JSZip();
+    const used = {};
+    ready.forEach(it => {
+      let name = it.pdfName;
+      if (used[name]) { name = it.base + "_" + (++used[it.pdfName]) + ".pdf"; }
+      else { used[name] = 1; }
+      zip.file(name, it.pdfBytes);
+    });
+    const blob = await zip.generateAsync({ type: "blob" });
+    downloadBlob(blob, "images_to_pdf.zip");
+    setStat(`已打包 ${ready.length} 個 PDF`, "ok");
+    btnZip.disabled = false;
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>
