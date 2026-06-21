@@ -73,6 +73,27 @@
 
   .stat { font-size: 13px; color: var(--muted); margin: 4px 2px 12px; min-height: 18px; }
 
+  .progress {
+    position: relative; height: 22px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    overflow: hidden; margin: 12px 0 6px;
+  }
+  .progress-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent-d), var(--accent));
+    border-radius: 999px; transition: width .35s ease;
+    background-size: 40px 40px;
+    background-image: linear-gradient(90deg, var(--accent-d), var(--accent)),
+      repeating-linear-gradient(45deg, rgba(255,255,255,.18) 0 10px, transparent 10px 20px);
+    animation: barflow .8s linear infinite;
+  }
+  @keyframes barflow { from { background-position: 0 0, 0 0; } to { background-position: 0 0, 40px 0; } }
+  .progress-text {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: #04293b;
+    text-shadow: 0 0 3px rgba(255,255,255,.4);
+  }
+
   .info {
     background: var(--panel); border: 1px solid var(--line);
     border-left: 3px solid var(--accent); border-radius: 10px;
@@ -172,6 +193,10 @@
     <button id="zip" class="ghost" disabled>全部打包 ZIP 下載</button>
     <button id="clear" class="ghost" disabled>清空清單</button>
   </div>
+  <div class="progress" id="progress" hidden>
+    <div class="progress-fill" id="progressFill"></div>
+    <span class="progress-text" id="progressText"></span>
+  </div>
   <div class="stat" id="stat"></div>
 
   <ul class="list" id="list"></ul>
@@ -198,6 +223,13 @@
   const drop = $("drop"), fileInput = $("file"), listEl = $("list"), statEl = $("stat");
   const btnConvert = $("convert"), btnZip = $("zip"), btnClear = $("clear");
   const selPaper = $("paper"), selOrient = $("orient"), selMargin = $("margin");
+  const progressEl = $("progress"), progressFill = $("progressFill"), progressText = $("progressText");
+
+  function setProgress(cur, total) {
+    const pct = total ? Math.round(cur / total * 100) : 0;
+    progressFill.style.width = pct + "%";
+    progressText.textContent = `${cur} / ${total}（${pct}%）`;
+  }
 
   /** items: { id, file, name, base, type, bytes, thumbUrl, status, pdfBytes, pdfName } */
   let items = [];
@@ -352,10 +384,14 @@
     const pageH = mm2pt(portrait ? longMM : shortMM);
     const margin = parseFloat(selMargin.value) || 0;
 
+    const total = items.length;
+    progressEl.hidden = false;
+    setProgress(0, total);
+
     let done = 0, fail = 0;
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      if (it.status === "done") { done++; continue; }
+      if (it.status === "done") { done++; setProgress(done + fail, total); continue; }
       setStat(`轉換中… (${i + 1}/${items.length}) ${it.name}`);
       it.status = "proc";
       render();
@@ -385,10 +421,13 @@
         it.status = "err";
         fail++;
       }
+      setProgress(done + fail, total);
       render();
       await new Promise(r => setTimeout(r)); // 讓畫面更新
     }
     setStat(`完成：${done} 成功${fail ? `，${fail} 失敗` : ""}`, fail ? "warn" : "ok");
+    setProgress(total, total);
+    setTimeout(() => { progressEl.hidden = true; }, 1200); // 完成後短暫顯示 100% 再隱藏
     refreshButtons();
   };
 
